@@ -1,45 +1,115 @@
 import streamlit as st
+import base64
 import json
 import os
 import urllib.parse
-from pathlib import Path
-from supabase import create_client, Client, ClientOptions
+from supabase import create_client, Client, ClientOptions, AuthApiError
 from dotenv import load_dotenv
 from streamlit.errors import StreamlitSecretNotFoundError
 
 load_dotenv()
 
+# Auth state lives in the visitor's own cookies, never in a server-side file, so
+# two people using the app never share a session.
+COOKIE_PREFIX = "contacts_"
+REFRESH_COOKIE = "refresh"
+COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
-class AuthStorage:
-    """Local store for the Supabase auth session and PKCE code verifier.
 
-    Streamlit re-runs this file from top to bottom on every interaction, and the
-    redirect back from Google starts a fresh session, so the Supabase client
-    cannot keep either value in memory. A JSON file next to the app is durable
-    across both reruns and browser reloads.
+def pending_cookies() -> dict:
+    if "pending_cookies" not in st.session_state:
+        st.session_state.pending_cookies = {}
+    return st.session_state.pending_cookies
+
+
+def read_cookie(key: str) -> str | None:
+    """Read a value this app stored in the visitor's browser."""
+    pending = pending_cookies()
+    if key in pending:
+        return pending[key]
+    raw = st.context.cookies.get(COOKIE_PREFIX + key)
+    if not raw:
+        return None
+    try:
+        return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8")
+    except (ValueError, UnicodeDecodeError):
+        return None
+
+
+def write_cookie(key: str, value: str | None) -> None:
+    """Queue a cookie change. flush_cookies() applies it in the browser."""
+    pending_cookies()[key] = value
+
+
+def flush_cookies() -> None:
+    """Apply queued cookie changes.
+
+    Streamlit can read the cookies a request arrived with but cannot set them from
+    Python, so a tiny same-origin iframe does the writing.
+    """
+    pending = pending_cookies()
+    if not pending:
+        return
+    writes = []
+    for key, value in pending.items():
+        name = COOKIE_PREFIX + key
+        if value is None:
+            writes.append(f'document.cookie = "{name}=; Max-Age=0; path=/; SameSite=Lax";')
+        else:
+            encoded = base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
+            writes.append(
+                f'document.cookie = "{name}={encoded}; Max-Age={COOKIE_MAX_AGE}; path=/; SameSite=Lax"'
+                ' + (location.protocol === "https:" ? "; Secure" : "");'
+            )
+    st.iframe("<script>" + "".join(writes) + "</script>", height=1)
+    pending.clear()
+
+
+class CookieStorage:
+    """Supabase auth storage for the PKCE verifier, kept per browser.
+
+    The session itself is not kept here: cookies are limited to roughly 4KB, so
+    only the refresh token is stored and the session is rebuilt by refreshing.
     """
 
-    def __init__(self, path: Path) -> None:
-        self._path = path
-
-    def _read(self) -> dict:
-        try:
-            return json.loads(self._path.read_text(encoding="utf-8"))
-        except (OSError, ValueError):
-            return {}
-
     def get_item(self, key: str) -> str | None:
-        return self._read().get(key)
+        return read_cookie("verifier") if key.endswith("-code-verifier") else None
 
     def set_item(self, key: str, value: str) -> None:
-        data = self._read()
-        data[key] = value
-        self._path.write_text(json.dumps(data), encoding="utf-8")
+        if key.endswith("-code-verifier"):
+            write_cookie("verifier", value)
 
     def remove_item(self, key: str) -> None:
-        data = self._read()
-        if data.pop(key, None) is not None:
-            self._path.write_text(json.dumps(data), encoding="utf-8")
+        if key.endswith("-code-verifier"):
+            write_cookie("verifier", None)
+
+
+def remember_session(session) -> None:
+    """Keep the refresh token in the visitor's cookie so the next visit is signed in.
+
+    Supabase rotates refresh tokens, so this runs after every sign-in and refresh.
+    """
+    if session and session.refresh_token:
+        write_cookie(REFRESH_COOKIE, session.refresh_token)
+
+
+def restore_session() -> None:
+    """Rebuild this visitor's session from their stored refresh token."""
+    token = read_cookie(REFRESH_COOKIE)
+    if not token:
+        return
+    try:
+        response = supabase.auth.refresh_session(token)
+    except Exception:
+        # Expired or revoked: forget it and fall back to the sign-in gate.
+        write_cookie(REFRESH_COOKIE, None)
+        return
+    session = response.session
+    if session and session.user:
+        remember_session(session)
+        st.session_state.session = session
+        st.session_state.user = session.user
+        st.session_state.user_role = session.user.user_metadata.get("role", "read-only")
 
 
 def get_config(name: str) -> str | None:
@@ -64,11 +134,7 @@ def get_app_url() -> str:
 # Initialize Supabase Client
 url: str = get_config("SUPABASE_URL")
 key: str = get_config("SUPABASE_KEY")
-supabase: Client = create_client(
-    url,
-    key,
-    options=ClientOptions(storage=AuthStorage(Path(__file__).with_name(".supabase_auth.json"))),
-)
+supabase: Client = create_client(url, key, options=ClientOptions(storage=CookieStorage()))
 
 st.set_page_config(page_title="Contact Manager", layout="centered")
 
@@ -77,6 +143,10 @@ if "user" not in st.session_state:
     st.session_state.user = None
 if "user_role" not in st.session_state:
     st.session_state.user_role = None
+if "otp_email" not in st.session_state:
+    st.session_state.otp_email = None
+if "session" not in st.session_state:
+    st.session_state.session = None
 
 # Supabase redirects back here with a short-lived auth code in the query string
 # (PKCE flow), which Python can read directly.
@@ -88,6 +158,8 @@ elif "code" in query_params and st.session_state.user is None:
         # Exchange the one-time code for an active auth session
         response = supabase.auth.exchange_code_for_session({"auth_code": query_params["code"]})
         if response.session and response.session.user:
+            remember_session(response.session)
+            st.session_state.session = response.session
             st.session_state.user = response.session.user
             st.session_state.user_role = response.session.user.user_metadata.get("role", "read-only")
             
@@ -97,21 +169,15 @@ elif "code" in query_params and st.session_state.user is None:
     except Exception as e:
         st.error(f"Token verification failed: {e}")
 
-# Try to automatically pull an active user session token if it exists
+# Sign this visitor back in from their own stored refresh token, if they have one
 if st.session_state.user is None:
-    try:
-        session = supabase.auth.get_session()
-        if session and session.user:
-            st.session_state.user = session.user
-            st.session_state.user_role = session.user.user_metadata.get("role", "read-only")
-    except Exception:
-        pass
+    restore_session()
 
-# --- GOOGLE ONLY GATEKEEPER AUTH UI ---
+# --- SIGN-IN GATE ---
 if st.session_state.user is None:
     st.title("🔐 Secure Access Portal")
-    st.warning("This is a private network directory. Google Authentication is required.")
-    
+    st.warning("This is a private network directory. Sign in with Google or an email code.")
+
     try:
         auth_data = supabase.auth.sign_in_with_oauth({
             "provider": "google",
@@ -128,7 +194,62 @@ if st.session_state.user is None:
         st.write("Click the button below to authorize your account securely via Google Workspace:")
         st.link_button("🔴 Sign In with Google", google_url, use_container_width=True)
         st.caption("💡 Once authorized, the page should automatically verify your account identity.")
-            
+
+    st.divider()
+    st.write("#### ✉️ Sign in with an email code")
+
+    pending_email = st.session_state.otp_email
+    if not pending_email:
+        email = st.text_input("Email address", placeholder="you@example.com")
+        if st.button("Send sign-in code", use_container_width=True):
+            email = email.strip()
+            if not email:
+                st.warning("Enter your email address first.")
+            else:
+                try:
+                    # should_create_user=False keeps access invite-only: an unknown
+                    # address is rejected instead of being signed up.
+                    supabase.auth.sign_in_with_otp({"email": email, "options": {"should_create_user": False}})
+                    st.session_state.otp_email = email
+                    st.rerun()
+                except AuthApiError as e:
+                    if e.code == "otp_disabled":
+                        st.error("That email address has no account yet. Ask an administrator to invite you.")
+                    elif e.code == "signup_disabled":
+                        st.error(
+                            "That account exists but its email has not been confirmed yet. "
+                            "Ask an administrator to confirm it."
+                        )
+                    else:
+                        st.error(f"Could not send the sign-in code: {e}")
+                except Exception as e:
+                    st.error(f"Could not send the sign-in code: {e}")
+    else:
+        st.caption(f"A sign-in code was sent to {pending_email}.")
+        code = st.text_input("Sign-in code", placeholder="Code from the email")
+        if st.button("Verify code", use_container_width=True):
+            try:
+                response = supabase.auth.verify_otp(
+                    {"email": pending_email, "token": code.strip(), "type": "email"}
+                )
+                if response.session and response.session.user:
+                    remember_session(response.session)
+                    st.session_state.session = response.session
+                    st.session_state.user = response.session.user
+                    st.session_state.user_role = response.session.user.user_metadata.get("role", "read-only")
+                    st.session_state.otp_email = None
+                    st.rerun()
+                else:
+                    st.error("That code was not accepted. Request a new one and try again.")
+            except Exception as e:
+                st.error(f"Sign-in failed: {e}")
+        if st.button("Use a different email"):
+            st.session_state.otp_email = None
+            st.rerun()
+
+    # The Google verifier and any other queued cookie change must reach the browser
+    # before this run ends.
+    flush_cookies()
     st.stop()
 
 # --- AUTHENTICATED APP WORKFLOW ---
@@ -138,9 +259,17 @@ st.success(f"Logged in successfully as: {st.session_state.user.email}")
 st.info(f"Access Role Level: {user_role.upper()}")
 
 if st.sidebar.button("Log Out"):
-    supabase.auth.sign_out()
+    # Revoke the session server-side, then forget it in this browser
+    session = st.session_state.get("session")
+    if session:
+        try:
+            supabase.auth.admin.sign_out(session.access_token, "global")
+        except Exception:
+            pass
+    write_cookie(REFRESH_COOKIE, None)
     st.session_state.user = None
     st.session_state.user_role = None
+    st.session_state.session = None
     st.query_params.clear()
     st.rerun()
 
@@ -200,3 +329,7 @@ if user_role in ['read-write', 'admin']:
             supabase.table("contacts").insert({"name": c_name, "address": c_addr, "telephone_number": c_tel}).execute()
             st.success(f"Added {c_name} to address book!")
             st.rerun()
+
+# Any cookie change queued during this run (rotated refresh token, cleared logout)
+# has to be written by the browser before the run ends.
+flush_cookies()
