@@ -1,0 +1,12 @@
+# Local environment secrets
+.env
+.env.local
+.env.*
+.supabase_auth.json
+
+# Python caching files
+__pycache__/
+*.pyc
+
+# Streamlit local configuration files
+.streamlit/
