@@ -52,6 +52,15 @@ def get_config(name: str) -> str | None:
     return value or os.environ.get(name)
 
 
+def get_app_url() -> str:
+    """The URL the user is browsing, which is where Google must send them back.
+
+    Taken from the current request so the same code works on localhost and on
+    Streamlit Cloud. Set an APP_URL secret or environment variable to override it.
+    """
+    return (get_config("APP_URL") or st.context.url or "http://localhost:8501").rstrip("/")
+
+
 # Initialize Supabase Client
 url: str = get_config("SUPABASE_URL")
 key: str = get_config("SUPABASE_KEY")
@@ -107,7 +116,7 @@ if st.session_state.user is None:
         auth_data = supabase.auth.sign_in_with_oauth({
             "provider": "google",
             "options": {
-                "redirect_to": "http://localhost:8501" 
+                "redirect_to": get_app_url()
             }
         })
         google_url = auth_data.url
