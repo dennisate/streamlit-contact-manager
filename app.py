@@ -115,7 +115,7 @@ def get_app_url() -> str:
     return (get_config("APP_URL") or st.context.url or "http://localhost:8501").rstrip("/")
 
 
-st.set_page_config(page_title="Contact Manager", layout="centered")
+st.set_page_config(page_title="Contact Manager", layout="wide")
 
 # Community Cloud filters browser cookies from st.context.cookies. This component
 # reads them in the browser and returns them through Streamlit's component channel.
@@ -174,77 +174,141 @@ if st.session_state.user is None:
 
 # --- SIGN-IN GATE ---
 if st.session_state.user is None:
-    st.title("🔐 Secure Access Portal")
-    st.warning("This is a private network directory. Sign in with Google or an email code.")
+    st.markdown(
+        """
+        <style>
+        .stApp { background: #ffffff; }
+        [data-testid="stHeader"] { background: transparent; }
+        [data-testid="stMainBlockContainer"] { max-width: 1080px; padding-top: 4rem; }
+        div[data-testid="stVerticalBlockBorderWrapper"] { border: 0; }
+        .signin-wordmark {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.45rem;
+            margin-bottom: 1.25rem;
+            color: #111827;
+            font-size: 1.65rem;
+            font-weight: 700;
+        }
+        .signin-wordmark__icon {
+            display: inline-flex;
+            width: 21px;
+            height: 21px;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-size: 0.75rem;
+            background: #111827;
+        }
+        .signin-rule { height: 3px; width: 100%; margin: 0 0 1.4rem; background: #f8c928; }
+        .signin-heading { margin: 0 0 0.45rem; color: #252a34; font-size: 1.45rem; font-weight: 600; }
+        .signin-subheading { margin: 0 0 1.4rem; color: #4b5563; font-size: 0.95rem; }
+        .signin-divider { display: flex; align-items: center; gap: 0.8rem; margin: 1.6rem 0; color: #424954; font-size: 0.8rem; }
+        .signin-divider::before, .signin-divider::after { content: ""; flex: 1; height: 1px; background: #d1d5db; }
+        .signin-note { margin-top: 1.4rem; color: #5d6674; font-size: 0.82rem; line-height: 1.5; }
+        div[data-testid="stTextInput"] input { border: 1px solid #4b5563; border-radius: 7px; }
+        div[data-testid="stTextInput"] input:focus { border-color: #111827; box-shadow: 0 0 0 1px #111827; }
+        div[data-testid="stLinkButton"] > a {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.6rem;
+            border-color: #d1d5db;
+            color: #303946;
+            font-weight: 500;
+        }
+        div[data-testid="stLinkButton"] > a::before {
+            content: "";
+            width: 18px;
+            height: 18px;
+            background: center / contain no-repeat url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 18 18'%3E%3Cpath fill='%234285F4' d='M17.64 9.205c0-.638-.057-1.252-.164-1.841H9v3.482h4.844a4.14 4.14 0 0 1-1.797 2.716v2.258h2.909c1.703-1.568 2.684-3.877 2.684-6.615Z'/%3E%3Cpath fill='%2334A853' d='M9 18c2.43 0 4.466-.806 5.956-2.18l-2.909-2.258c-.806.54-1.837.86-3.047.86-2.34 0-4.32-1.58-5.027-3.705H.966v2.332A9 9 0 0 0 9 18Z'/%3E%3Cpath fill='%23FBBC05' d='M3.973 10.717A5.41 5.41 0 0 1 3.69 9c0-.597.102-1.178.283-1.717V4.951H.966A9 9 0 0 0 0 9c0 1.452.348 2.827.966 4.049l3.007-2.332Z'/%3E%3Cpath fill='%23EA4335' d='M9 3.578c1.32 0 2.507.454 3.441 1.345l2.581-2.581C13.462.891 11.426 0 9 0A9 9 0 0 0 .966 4.951l3.007 2.332C4.68 5.158 6.66 3.578 9 3.578Z'/%3E%3C/svg%3E");
+        }
+        div[data-testid="stButton"] > button { background: #f8c928; border-color: #f8c928; color: #252a34; font-weight: 600; }
+        div[data-testid="stButton"] > button:hover { background: #eab308; border-color: #eab308; color: #252a34; }
+        @media (max-width: 700px) {
+            [data-testid="stMainBlockContainer"] { padding-top: 1.5rem; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    try:
-        auth_data = supabase.auth.sign_in_with_oauth({
-            "provider": "google",
-            "options": {
-                "redirect_to": get_app_url()
-            }
-        })
-        google_url = auth_data.url
-    except Exception as e:
-        st.error(f"Failed to initialize Google Auth Provider: {e}")
-        google_url = None
+    _, sign_in_column, _ = st.columns([1, 1.25, 1])
+    with sign_in_column:
+        with st.container(border=True):
+            st.markdown(
+                '<div class="signin-wordmark"><span class="signin-wordmark__icon">⌁</span>Contact Directory</div>'
+                '<div class="signin-rule"></div>'
+                '<h2 class="signin-heading">Sign in to continue</h2>'
+                '<p class="signin-subheading">Use your email address to receive a one-time sign-in code.</p>',
+                unsafe_allow_html=True,
+            )
 
-    if google_url:
-        st.write("Click the button below to authorize your account securely via Google Workspace:")
-        st.link_button("🔴 Sign In with Google", google_url, use_container_width=True)
-        st.caption("💡 Once authorized, the page should automatically verify your account identity.")
-
-    st.divider()
-    st.write("#### ✉️ Sign in with an email code")
-
-    pending_email = st.session_state.otp_email
-    if not pending_email:
-        email = st.text_input("Email address", placeholder="you@example.com")
-        if st.button("Send sign-in code", use_container_width=True):
-            email = email.strip()
-            if not email:
-                st.warning("Enter your email address first.")
-            else:
-                try:
-                    # should_create_user=False keeps access invite-only: an unknown
-                    # address is rejected instead of being signed up.
-                    supabase.auth.sign_in_with_otp({"email": email, "options": {"should_create_user": False}})
-                    st.session_state.otp_email = email
-                    st.rerun()
-                except AuthApiError as e:
-                    if e.code == "otp_disabled":
-                        st.error("That email address has no account yet. Ask an administrator to invite you.")
-                    elif e.code == "signup_disabled":
-                        st.error(
-                            "That account exists but its email has not been confirmed yet. "
-                            "Ask an administrator to confirm it."
-                        )
-                    else:
-                        st.error(f"Could not send the sign-in code: {e}")
-                except Exception as e:
-                    st.error(f"Could not send the sign-in code: {e}")
-    else:
-        st.caption(f"A sign-in code was sent to {pending_email}.")
-        code = st.text_input("Sign-in code", placeholder="Code from the email")
-        if st.button("Verify code", use_container_width=True):
             try:
-                response = supabase.auth.verify_otp(
-                    {"email": pending_email, "token": code.strip(), "type": "email"}
-                )
-                if response.session and response.session.user:
-                    remember_session(response.session)
-                    st.session_state.session = response.session
-                    st.session_state.user = response.session.user
-                    st.session_state.user_role = response.session.user.user_metadata.get("role", "read-only")
+                auth_data = supabase.auth.sign_in_with_oauth({
+                    "provider": "google",
+                    "options": {
+                        "redirect_to": get_app_url()
+                    }
+                })
+                google_url = auth_data.url
+            except Exception as e:
+                st.error(f"Failed to initialize Google Auth Provider: {e}")
+                google_url = None
+
+            pending_email = st.session_state.otp_email
+            if not pending_email:
+                email = st.text_input("Email address", placeholder="you@company.com")
+                if st.button("Send sign-in code", use_container_width=True):
+                    email = email.strip()
+                    if not email:
+                        st.warning("Enter your email address first.")
+                    else:
+                        try:
+                            # should_create_user=False keeps access invite-only: an unknown
+                            # address is rejected instead of being signed up.
+                            supabase.auth.sign_in_with_otp({"email": email, "options": {"should_create_user": False}})
+                            st.session_state.otp_email = email
+                            st.rerun()
+                        except AuthApiError as e:
+                            if e.code == "otp_disabled":
+                                st.error("That email address has no account yet. Ask an administrator to invite you.")
+                            elif e.code == "signup_disabled":
+                                st.error(
+                                    "That account exists but its email has not been confirmed yet. "
+                                    "Ask an administrator to confirm it."
+                                )
+                            else:
+                                st.error(f"Could not send the sign-in code: {e}")
+                        except Exception as e:
+                            st.error(f"Could not send the sign-in code: {e}")
+            else:
+                st.caption(f"A sign-in code was sent to {pending_email}.")
+                code = st.text_input("Sign-in code", placeholder="Code from the email")
+                if st.button("Verify code", use_container_width=True):
+                    try:
+                        response = supabase.auth.verify_otp(
+                            {"email": pending_email, "token": code.strip(), "type": "email"}
+                        )
+                        if response.session and response.session.user:
+                            remember_session(response.session)
+                            st.session_state.session = response.session
+                            st.session_state.user = response.session.user
+                            st.session_state.user_role = response.session.user.user_metadata.get("role", "read-only")
+                            st.session_state.otp_email = None
+                            st.rerun()
+                        else:
+                            st.error("That code was not accepted. Request a new one and try again.")
+                    except Exception as e:
+                        st.error(f"Sign-in failed: {e}")
+                if st.button("Use a different email"):
                     st.session_state.otp_email = None
                     st.rerun()
-                else:
-                    st.error("That code was not accepted. Request a new one and try again.")
-            except Exception as e:
-                st.error(f"Sign-in failed: {e}")
-        if st.button("Use a different email"):
-            st.session_state.otp_email = None
-            st.rerun()
+
+            st.markdown('<div class="signin-divider">OR</div>', unsafe_allow_html=True)
+            if google_url:
+                st.link_button("Continue with Google", google_url, use_container_width=True)
+            st.markdown('<p class="signin-note">This is a private, invite-only directory. Need access? Contact your administrator.</p>', unsafe_allow_html=True)
 
     st.stop()
 
