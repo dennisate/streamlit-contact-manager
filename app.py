@@ -75,6 +75,27 @@ def restore_session() -> None:
         st.session_state.user_role = session.user.user_metadata.get("role", "read-only")
 
 
+def activate_session() -> None:
+    """Attach this Streamlit session's access token to this run's Supabase client."""
+    session = st.session_state.session
+    if not session:
+        return
+    try:
+        response = supabase.auth.set_session(session.access_token, session.refresh_token)
+    except Exception:
+        # The refresh cookie can rebuild a revoked or expired session on the next pass.
+        st.session_state.session = None
+        st.session_state.user = None
+        st.session_state.user_role = None
+        return
+
+    if response.session and response.session.user:
+        remember_session(response.session)
+        st.session_state.session = response.session
+        st.session_state.user = response.session.user
+        st.session_state.user_role = response.session.user.user_metadata.get("role", "read-only")
+
+
 def get_config(name: str) -> str | None:
     """Read a setting from Streamlit Cloud secrets, then local environment variables."""
     try:
@@ -121,6 +142,10 @@ if "otp_email" not in st.session_state:
     st.session_state.otp_email = None
 if "session" not in st.session_state:
     st.session_state.session = None
+
+# A Streamlit rerun constructs a new Supabase client. Reapply this browser's
+# session so table queries use its JWT rather than the anonymous project key.
+activate_session()
 
 # Supabase redirects back here with a short-lived auth code in the query string
 # (PKCE flow), which Python can read directly.
