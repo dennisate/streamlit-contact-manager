@@ -1,11 +1,9 @@
 import streamlit as st
-import base64
-import json
 import os
-import urllib.parse
 from supabase import create_client, Client, ClientOptions, AuthApiError
 from dotenv import load_dotenv
 from streamlit.errors import StreamlitSecretNotFoundError
+from streamlit_cookies_controller import CookieController
 
 load_dotenv()
 
@@ -16,53 +14,18 @@ REFRESH_COOKIE = "refresh"
 COOKIE_MAX_AGE = 60 * 60 * 24 * 30  # 30 days
 
 
-def pending_cookies() -> dict:
-    if "pending_cookies" not in st.session_state:
-        st.session_state.pending_cookies = {}
-    return st.session_state.pending_cookies
-
-
 def read_cookie(key: str) -> str | None:
-    """Read a value this app stored in the visitor's browser."""
-    pending = pending_cookies()
-    if key in pending:
-        return pending[key]
-    raw = st.context.cookies.get(COOKIE_PREFIX + key)
-    if not raw:
-        return None
-    try:
-        return base64.urlsafe_b64decode(raw + "=" * (-len(raw) % 4)).decode("utf-8")
-    except (ValueError, UnicodeDecodeError):
-        return None
+    """Read a value from the visitor's browser through the cookie component."""
+    return cookie_controller.get(COOKIE_PREFIX + key)
 
 
 def write_cookie(key: str, value: str | None) -> None:
-    """Queue a cookie change. flush_cookies() applies it in the browser."""
-    pending_cookies()[key] = value
-
-
-def flush_cookies() -> None:
-    """Apply queued cookie changes.
-
-    Streamlit can read the cookies a request arrived with but cannot set them from
-    Python, so a tiny same-origin iframe does the writing.
-    """
-    pending = pending_cookies()
-    if not pending:
-        return
-    writes = []
-    for key, value in pending.items():
-        name = COOKIE_PREFIX + key
-        if value is None:
-            writes.append(f'document.cookie = "{name}=; Max-Age=0; path=/; SameSite=Lax";')
-        else:
-            encoded = base64.urlsafe_b64encode(value.encode("utf-8")).decode("ascii").rstrip("=")
-            writes.append(
-                f'document.cookie = "{name}={encoded}; Max-Age={COOKIE_MAX_AGE}; path=/; SameSite=Lax"'
-                ' + (location.protocol === "https:" ? "; Secure" : "");'
-            )
-    st.iframe("<script>" + "".join(writes) + "</script>", height=1)
-    pending.clear()
+    """Set or remove a browser cookie through the cookie component."""
+    name = COOKIE_PREFIX + key
+    if value is None:
+        cookie_controller.remove(name)
+    else:
+        cookie_controller.set(name, value, max_age=COOKIE_MAX_AGE, same_site="lax")
 
 
 class CookieStorage:
@@ -131,12 +94,23 @@ def get_app_url() -> str:
     return (get_config("APP_URL") or st.context.url or "http://localhost:8501").rstrip("/")
 
 
+st.set_page_config(page_title="Contact Manager", layout="centered")
+
+# Community Cloud filters browser cookies from st.context.cookies. This component
+# reads them in the browser and returns them through Streamlit's component channel.
+# Wait for its first response before attempting a PKCE code exchange.
+cookie_state_key = "contacts_auth_cookies"
+cookies_ready = cookie_state_key in st.session_state
+cookie_controller = CookieController(key=cookie_state_key)
+
 # Initialize Supabase Client
 url: str = get_config("SUPABASE_URL")
 key: str = get_config("SUPABASE_KEY")
 supabase: Client = create_client(url, key, options=ClientOptions(storage=CookieStorage()))
 
-st.set_page_config(page_title="Contact Manager", layout="centered")
+if not cookies_ready:
+    st.spinner("Preparing secure sign-in…")
+    st.stop()
 
 # Manage Auth State
 if "user" not in st.session_state:
@@ -247,9 +221,6 @@ if st.session_state.user is None:
             st.session_state.otp_email = None
             st.rerun()
 
-    # The Google verifier and any other queued cookie change must reach the browser
-    # before this run ends.
-    flush_cookies()
     st.stop()
 
 # --- AUTHENTICATED APP WORKFLOW ---
@@ -329,7 +300,3 @@ if user_role in ['read-write', 'admin']:
             supabase.table("contacts").insert({"name": c_name, "address": c_addr, "telephone_number": c_tel}).execute()
             st.success(f"Added {c_name} to address book!")
             st.rerun()
-
-# Any cookie change queued during this run (rotated refresh token, cleared logout)
-# has to be written by the browser before the run ends.
-flush_cookies()

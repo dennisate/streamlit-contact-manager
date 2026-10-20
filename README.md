@@ -19,8 +19,8 @@ each person gets a role that decides what they can do.
 - **Add and edit contacts.** Available to `read-write` and `admin` users. Editing happens
   in a popover on each contact.
 - **Delete contacts.** `admin` only.
-- **Stay signed in.** The session is kept on the server side, so a browser refresh does
-  not log you out. The Log Out button in the sidebar ends the session.
+- **Stay signed in.** The browser keeps a refresh token, so a browser refresh does not
+  log you out. The Log Out button in the sidebar ends the session.
 
 ## Roles
 
@@ -45,8 +45,9 @@ example `{"role": "admin"}`.
   the app reads and writes: `id`, `name`, `address`, `telephone_number`.
 - **Cookies** hold the signed-in state, in the visitor's own browser. Only the refresh
   token is stored (a session is too big for a cookie); the app rebuilds the session from
-  it on each visit. Nothing is shared between visitors, so one person's login is never
-  handed to another.
+  it on each visit. The cookie component reads cookies in the browser instead of through
+  `st.context.cookies`, because Streamlit Community Cloud filters cookie headers before
+  they reach the app backend.
 
 ## Running it
 
@@ -87,8 +88,9 @@ In the Supabase project:
    URL fragment, which a server-side Streamlit app cannot read. The typed code is what
    signs you in. Note that the built-in email sender is rate limited (a couple of messages
    per hour), so testing with a custom SMTP provider is easier.
-4. Add `http://localhost:8501` to Authentication → URL Configuration → Redirect URLs,
-   otherwise Supabase sends users to the project's Site URL instead.
+4. Add both `http://localhost:8501` and the deployed address (for example,
+   `https://your-app.streamlit.app`) to Authentication → URL Configuration → Redirect
+   URLs, otherwise Supabase sends users to the project's Site URL instead.
 5. Create the `contacts` table and set row level security policies so that authenticated
    users can read it, and only the roles above can write to it. The role checks in the UI
    only hide buttons; RLS is what actually protects the data.
