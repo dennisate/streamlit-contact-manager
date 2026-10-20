@@ -177,16 +177,19 @@ if st.session_state.user is None:
     st.markdown(
         """
         <style>
-        .stApp { background: #ffffff; }
+        .stApp { background: var(--background-color); }
         [data-testid="stHeader"] { background: transparent; }
         [data-testid="stMainBlockContainer"] { max-width: 1080px; padding-top: 4rem; }
-        div[data-testid="stVerticalBlockBorderWrapper"] { border: 0; }
+        div[data-testid="stVerticalBlockBorderWrapper"] {
+            border-color: color-mix(in srgb, var(--text-color) 20%, transparent);
+            background: var(--secondary-background-color);
+        }
         .signin-wordmark {
             display: inline-flex;
             align-items: center;
             gap: 0.45rem;
             margin-bottom: 1.25rem;
-            color: #111827;
+            color: var(--text-color);
             font-size: 1.65rem;
             font-weight: 700;
         }
@@ -196,25 +199,26 @@ if st.session_state.user is None:
             height: 21px;
             align-items: center;
             justify-content: center;
-            color: #ffffff;
+            color: var(--background-color);
             font-size: 0.75rem;
-            background: #111827;
+            background: var(--text-color);
         }
         .signin-rule { height: 3px; width: 100%; margin: 0 0 1.4rem; background: #f8c928; }
-        .signin-heading { margin: 0 0 0.45rem; color: #252a34; font-size: 1.45rem; font-weight: 600; }
-        .signin-subheading { margin: 0 0 1.4rem; color: #4b5563; font-size: 0.95rem; }
-        .signin-divider { display: flex; align-items: center; gap: 0.8rem; margin: 1.6rem 0; color: #424954; font-size: 0.8rem; }
-        .signin-divider::before, .signin-divider::after { content: ""; flex: 1; height: 1px; background: #d1d5db; }
-        .signin-note { margin-top: 1.4rem; color: #5d6674; font-size: 0.82rem; line-height: 1.5; }
-        div[data-testid="stTextInput"] input { border: 1px solid #4b5563; border-radius: 7px; }
-        div[data-testid="stTextInput"] input:focus { border-color: #111827; box-shadow: 0 0 0 1px #111827; }
+        .signin-heading { margin: 0 0 0.45rem; color: var(--text-color); font-size: 1.45rem; font-weight: 600; }
+        .signin-subheading { margin: 0 0 1.4rem; color: color-mix(in srgb, var(--text-color) 75%, transparent); font-size: 0.95rem; }
+        .signin-divider { display: flex; align-items: center; gap: 0.8rem; margin: 1.6rem 0; color: color-mix(in srgb, var(--text-color) 70%, transparent); font-size: 0.8rem; }
+        .signin-divider::before, .signin-divider::after { content: ""; flex: 1; height: 1px; background: color-mix(in srgb, var(--text-color) 25%, transparent); }
+        .signin-note { margin-top: 1.4rem; color: color-mix(in srgb, var(--text-color) 70%, transparent); font-size: 0.82rem; line-height: 1.5; }
+        div[data-testid="stTextInput"] input { border: 1px solid color-mix(in srgb, var(--text-color) 45%, transparent); border-radius: 7px; color: var(--text-color); background: var(--background-color); }
+        div[data-testid="stTextInput"] input:focus { border-color: var(--primary-color); box-shadow: 0 0 0 1px var(--primary-color); }
         div[data-testid="stLinkButton"] > a {
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 0.6rem;
-            border-color: #d1d5db;
-            color: #303946;
+            border-color: color-mix(in srgb, var(--text-color) 30%, transparent);
+            color: var(--text-color);
+            background: var(--secondary-background-color);
             font-weight: 500;
         }
         div[data-testid="stLinkButton"] > a::before {
